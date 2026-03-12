@@ -1,0 +1,183 @@
+--// SERVICES
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+--// AIMBOT CONFIG
+local teamCheck = false
+local aimbotEnabled = false
+local ignoredPlayers = {} 
+local targetLocked = false
+local currentTarget = nil
+
+--// FUNCION OBTENER TARGET
+local function getClosest(cframe)
+    local ray = Ray.new(cframe.Position, cframe.LookVector).Unit
+    local target = nil
+    local mag = math.huge
+
+    for _,v in pairs(Players:GetPlayers()) do
+        if v.Character 
+        and v.Character:FindFirstChild("Head") 
+        and v.Character:FindFirstChild("Humanoid") 
+        and v.Character:FindFirstChild("HumanoidRootPart") 
+        and v.Character.Humanoid.Health > 0
+        and v ~= LocalPlayer
+        and not ignoredPlayers[v]
+        and (v.Team ~= LocalPlayer.Team or not teamCheck)
+        then
+            
+            local magBuf = (v.Character.Head.Position - ray:ClosestPoint(v.Character.Head.Position)).Magnitude
+
+            if magBuf < mag then
+                local rp = RaycastParams.new()
+                rp.FilterType = Enum.RaycastFilterType.Blacklist
+                rp.FilterDescendantsInstances = {LocalPlayer.Character}
+
+                local rc = workspace:Raycast(cframe.Position, v.Character.Head.Position - cframe.Position, rp)
+
+                if not rc or rc.Instance:IsDescendantOf(v.Character) then
+                    mag = magBuf
+                    target = v
+                end
+            end
+        end
+    end
+
+    return target
+end
+
+--------------------------------------------------------------------
+--// GUI AIMBOT TOGGLE
+--------------------------------------------------------------------
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = game.CoreGui
+
+local aimbotButton = Instance.new("TextButton")
+aimbotButton.Parent = screenGui
+aimbotButton.Position = UDim2.new(0, 10, 0, 50)
+aimbotButton.Size = UDim2.new(0, 100, 0, 50)
+aimbotButton.Text = "Aimbot: Off"
+aimbotButton.TextColor3 = Color3.fromRGB(255, 0, 0)
+aimbotButton.BackgroundTransparency = 1
+aimbotButton.FontSize = Enum.FontSize.Size24
+
+local function toggleAimbot()
+    aimbotEnabled = not aimbotEnabled
+    if aimbotEnabled then
+        aimbotButton.Text = "Aimbot: On"
+        aimbotButton.TextColor3 = Color3.fromRGB(0, 255, 0)
+    else
+        aimbotButton.Text = "Aimbot: Off"
+        aimbotButton.TextColor3 = Color3.fromRGB(255, 0, 0)
+    end
+end
+
+aimbotButton.MouseButton1Click:Connect(toggleAimbot)
+
+--------------------------------------------------------------------
+--// GUI LISTA DE JUGADORES (SCROLL + IGNORE)
+--------------------------------------------------------------------
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "PlayerListUI"
+ScreenGui.Parent = game:GetService("CoreGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 160, 0, 30)
+MainFrame.Position = UDim2.new(0, 15, 0.3, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+MainFrame.BackgroundTransparency = 0.2
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Size = UDim2.new(1, 0, 1, 0)
+ToggleButton.BackgroundTransparency = 1
+ToggleButton.Text = "Jugadores ▼"
+ToggleButton.Font = Enum.Font.SourceSansBold
+ToggleButton.TextSize = 16
+ToggleButton.TextColor3 = Color3.fromRGB(255,255,255)
+ToggleButton.Parent = MainFrame
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, 0, 0, 150)
+Scroll.Position = UDim2.new(0, 0, 1, 0)
+Scroll.BackgroundColor3 = Color3.fromRGB(25,25,25)
+Scroll.BackgroundTransparency = 0.25
+Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 4
+Scroll.Visible = false
+Scroll.CanvasSize = UDim2.new(0,0,0,0)
+Scroll.Parent = MainFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Parent = Scroll
+
+local Expanded = false
+
+local function RefreshList()
+    for _,v in ipairs(Scroll:GetChildren()) do
+        if v:IsA("TextButton") then v:Destroy() end
+    end
+
+    for _,plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local Btn = Instance.new("TextButton")
+            Btn.Size = UDim2.new(1, 0, 0, 20)
+            Btn.BackgroundTransparency = 1
+            Btn.Font = Enum.Font.SourceSans
+            Btn.TextSize = 15
+            Btn.TextColor3 = ignoredPlayers[plr] and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,255,255)
+            Btn.Text = plr.Name
+            Btn.Parent = Scroll
+
+            Btn.MouseButton1Click:Connect(function()
+                ignoredPlayers[plr] = not ignoredPlayers[plr]
+                Btn.TextColor3 = ignoredPlayers[plr] and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,255,255)
+            end)
+        end
+    end
+    
+    Scroll.CanvasSize = UDim2.new(0,0,0,#Players:GetPlayers() * 20)
+end
+
+ToggleButton.MouseButton1Click:Connect(function()
+    Expanded = not Expanded
+    Scroll.Visible = Expanded
+    ToggleButton.Text = Expanded and "Jugadores ▲" or "Jugadores ▼"
+end)
+
+Players.PlayerAdded:Connect(RefreshList)
+Players.PlayerRemoving:Connect(RefreshList)
+
+RefreshList()
+
+--------------------------------------------------------------------
+--// AIMBOT LOOP
+--------------------------------------------------------------------
+
+local loop = RunService.RenderStepped:Connect(function()
+    if aimbotEnabled then
+        local cam = workspace.CurrentCamera
+        currentTarget = getClosest(cam.CFrame)
+
+        if currentTarget then
+            targetLocked = true
+            workspace.CurrentCamera.CFrame = CFrame.new(cam.CFrame.Position, currentTarget.Character.Head.Position)
+        else
+            targetLocked = false
+        end
+    end
+
+    if UserInputService:IsKeyDown(Enum.KeyCode.Delete) then
+        loop:Disconnect()
+        ScreenGui:Destroy()
+        screenGui:Destroy()
+    end
+end)
